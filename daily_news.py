@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-"""美妆/科技行业日报 — GitHub Actions 定时推送飞书
-数据来源：
-  美妆：Google News 中文区 + 精选 RSS
-  科技：Google News + IT之家/36氪/机器之心/量子位 + 推特 AI 圈
+"""行业日报 — GitHub Actions 定时推送飞书
+配置由 topics.yaml 统一管理，加行业改 YAML 即可，无需动代码。
 """
 
 import os
@@ -15,7 +13,16 @@ import urllib.parse
 import re
 from datetime import datetime
 from html import unescape
+from pathlib import Path
 from xml.etree import ElementTree as ET
+
+try:
+    import yaml
+except ImportError:
+    print("❌ 需要 PyYAML: pip install pyyaml", file=sys.stderr)
+    sys.exit(1)
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
 
 # ── 清除本地代理（企业环境代理不可用） ──
 for _key in list(os.environ):
@@ -166,52 +173,24 @@ def _strip_title(text: str, title: str) -> str:
 # ──────────────── Google News RSS ────────────────
 GOOGLE_NEWS_BASE = "https://news.google.com/rss/search"
 
-GOOGLE_BEAUTY_QUERIES = [
-    # ── 国际大牌 ──
-    "欧莱雅 雅诗兰黛 资生堂 最新动态 2026",
-    "LVMH 美妆 品牌 Dior 娇兰 纪梵希 最新",
-    "宝洁 联合利华 美容 护肤 品牌 动态",
-    "Coty 拜尔斯道夫 妮维雅 La Prairie 最新",
-    # ── 国货品牌 ──
-    "珀莱雅 薇诺娜 华熙生物 新品 业绩",
-    "完美日记 花西子 毛戈平 最新动态 2026",
-    "韩束 丸美 自然堂 谷雨 溪木源 品牌",
-    "巨子生物 可复美 瑷尔博士 最新",
-    # ── 韩妆日妆 ──
-    "爱茉莉太平洋 雪花秀 LG生活健康 最新",
-    "高丝 花王 芳珂 Fancl 美妆 品牌",
-    # ── 行业综合 ──
-    "美妆 品牌 融资 收购 上市 2026",
-    "化妆品 护肤 新品 发布 成分",
-    "化妆品行业 市场 趋势 新规 2026",
-]
+# ──────────────── 行业配置（从 YAML 加载）───────────────
+def _load_topics() -> dict:
+    """从 topics.yaml 加载行业配置，格式见文件内注释"""
+    yaml_path = _SCRIPT_DIR / "topics.yaml"
+    if not yaml_path.exists():
+        print(f"❌ 缺少配置文件: {yaml_path}", file=sys.stderr)
+        sys.exit(1)
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f)
+    topics = data.get("topics", {})
+    # 过滤掉 enabled=false 的主题
+    enabled = {k: v for k, v in topics.items() if v.get("enabled", True)}
+    if not enabled:
+        print("❌ 没有启用的行业主题，请检查 topics.yaml", file=sys.stderr)
+        sys.exit(1)
+    return enabled
 
-GOOGLE_TECH_QUERIES = [
-    # AI 核心
-    "AI 人工智能 最新进展 2026",
-    "大模型 LLM GPT 发布",
-    "AI Agent 智能体 应用",
-    "具身智能 机器人 最新",
-    "AI 开源模型 最新",
-    "AI 芯片 算力 最新",
-    # 行业
-    "手机 新品 发布 2026",
-    "芯片 半导体 最新",
-    "人工智能 投融资 融资",
-    "AI 生成式 应用 落地",
-    "科技公司 AI 战略 2026",
-]
-
-# ──────────────── 中文 RSS 源 ────────────────
-CHINESE_RSS_FEEDS = {
-    "tech": [
-        "https://www.ithome.com/rss/",
-        "https://36kr.com/feed",
-        "https://www.jiqizhixin.com/rss",
-        "https://www.qbitai.com/rss",
-    ],
-    "beauty": [],
-}
+TOPIC_CONFIG = _load_topics()
 
 # ──────────────── Nitter 实例（推特 RSS） ────────────────
 NITTER_INSTANCES = [
@@ -230,33 +209,7 @@ TWITTER_AI_ACCOUNTS = [
 ]
 
 # ──────────────── 主题配置 ────────────────
-TOPIC_CONFIG = {
-    "beauty": {
-        "title_prefix": "💄 美妆行业日报",
-        "sections": [
-            ("🏷️ 品牌动态", "新品发布、业绩财报、品牌合作"),
-            ("🤝 投融资·并购", "融资、收购、上市"),
-            ("📊 行业事件", "市场趋势、政策新规、渠道变化"),
-            ("🔍 产品·成分", "新品技术、热门成分、研发动态"),
-        ],
-        "google_queries": GOOGLE_BEAUTY_QUERIES,
-        "rss_feeds": CHINESE_RSS_FEEDS["beauty"],
-        "twitter": False,
-        "footer": "💡 来源：Google News品牌搜索（13个搜索词覆盖国际大牌+国货+韩妆日妆） | 精选14条 · 每日9:00自动推送",
-    },
-    "tech": {
-        "title_prefix": "🤖 AI·3C·科技日报",
-        "sections": [
-            ("📊 行业动态", "市场数据、行业趋势、投融资"),
-            ("🏭 公司事件", "产品发布、企业动态、合作并购"),
-            ("🔍 技术趋势", "AI突破、芯片进展、前沿技术"),
-        ],
-        "google_queries": GOOGLE_TECH_QUERIES,
-        "rss_feeds": CHINESE_RSS_FEEDS["tech"],
-        "twitter": True,
-        "footer": "💡 来源：Google News + IT之家/36氪/机器之心/量子位 + 推特AI圈 | 精选10条 · 每日9:00自动推送",
-    },
-}
+# 已从 topics.yaml 加载，见上方 _load_topics()
 
 
 def fetch_url(url: str, timeout: int = 15) -> str | None:
@@ -589,8 +542,8 @@ def build_post(topic: str, items: list[dict]) -> dict:
             # 未匹配（理论上不会），兜底放行业事件
             section_buckets.setdefault("📊 行业事件", []).append(item)
 
-    # ── 构建板块：每个最多4条，总14条，跳过空板块 ──
-    max_total = 14
+    # ── 构建板块：每个最多4条，总数从配置读取，跳过空板块 ──
+    max_total = config.get("news_count", 14)
     assigned = 0
     for section_title, _ in sections:
         bucket = section_buckets.get(section_title, [])
@@ -663,7 +616,7 @@ def push_to_feishu(payload: dict) -> bool:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--topic", required=True, choices=["beauty", "tech"])
+    parser.add_argument("--topic", required=True, choices=list(TOPIC_CONFIG.keys()))
     args = parser.parse_args()
 
     config = TOPIC_CONFIG[args.topic]
@@ -676,7 +629,8 @@ def main():
         print("❌ 无搜索结果，退出", file=sys.stderr)
         sys.exit(1)
 
-    selected = select_best(results, count=14)
+    news_count = config.get("news_count", 14)
+    selected = select_best(results, count=news_count)
     print(f"⭐ 精选 {len(selected)} 条")
 
     payload = build_post(args.topic, selected)
