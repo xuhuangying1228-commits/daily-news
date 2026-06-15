@@ -1,1 +1,2 @@
-duckduckgo-search>=8.0.0
+# 无外部依赖 — 使用 Python 标准库
+# urllib.request + xml.etree.ElementTree 即可运行
