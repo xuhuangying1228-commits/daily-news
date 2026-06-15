@@ -431,6 +431,41 @@ def search_news(config: dict, min_count: int = 15) -> list[dict]:
     return all_results
 
 
+def _is_market_report(item: dict) -> bool:
+    """检测是否为自动生成的市场研究报告（质量低，应降权）"""
+    title = item["title"]
+    body = item.get("body", "")
+
+    # 模式1：XX市场规模/份额/增长/趋势/报告/预测（逗号分隔的关键词堆砌）
+    report_pattern = re.compile(
+        r"(?:规模|份额|增长|趋势|预测|展望|分析|报告)"
+        r"[，,、\s]*"
+        r"(?:规模|份额|增长|趋势|预测|展望|分析|报告)"
+    )
+    if report_pattern.search(title):
+        # 额外确认：标题短（<40字）且无品牌名/产品名 → 大概率是自动报告
+        if len(title) < 40:
+            return True
+
+    # 模式2：标题以"XX市场"开头 + 年度范围（如2026-2034）
+    if re.search(r"市场.*20\d{2}[-–—]\d{2,4}年?", title):
+        if not any(kw in title for kw in ["上市", "发布", "推出", "合作", "融资"]):
+            return True
+
+    # 模式3：来源是市场研究机构的 RSS
+    report_domains = [
+        "researchandmarkets", "grandviewresearch", "globenewswire",
+        "prnewswire", "marketresearchfuture", "mordorintelligence",
+        "fortunebusinessinsights", "alliedmarketresearch",
+        "transparencymarketresearch", "gminsights", "marketsandmarkets",
+    ]
+    href = item.get("href", "").lower()
+    if any(d in href for d in report_domains):
+        return True
+
+    return False
+
+
 def select_best(results: list[dict], count: int = 10) -> list[dict]:
     """精选最有价值的新闻"""
     if len(results) <= count:
@@ -456,6 +491,9 @@ def select_best(results: list[dict], count: int = 10) -> list[dict]:
         for kw in ["2026", "6月", "最新", "刚刚"]:
             if kw in r["title"]:
                 s += 1
+        # 市场研究报告降权
+        if _is_market_report(r):
+            s -= 5
         return s
 
     scored = [(score(r), r) for r in results]
