@@ -17,6 +17,10 @@ from datetime import datetime
 from html import unescape
 from xml.etree import ElementTree as ET
 
+# ── 清除本地代理（企业环境代理不可用） ──
+for _key in list(os.environ):
+    if _key.lower().endswith("_proxy"):
+        del os.environ[_key]
 
 # ──────────────── 飞书 Webhook ────────────────
 FEISHU_URL = os.environ["FEISHU_WEBHOOK_URL"]
