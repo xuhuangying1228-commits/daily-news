@@ -130,11 +130,23 @@ def _strip_title(text: str, title: str) -> str:
 GOOGLE_NEWS_BASE = "https://news.google.com/rss/search"
 
 GOOGLE_BEAUTY_QUERIES = [
-    "美妆 化妆品 最新",
-    "护肤 品牌 最新动态",
-    "国货美妆 趋势",
-    "化妆品行业 市场",
-    "美容 护肤品 新规",
+    # ── 国际大牌 ──
+    "欧莱雅 雅诗兰黛 资生堂 最新动态 2026",
+    "LVMH 美妆 品牌 Dior 娇兰 纪梵希 最新",
+    "宝洁 联合利华 美容 护肤 品牌 动态",
+    "Coty 拜尔斯道夫 妮维雅 La Prairie 最新",
+    # ── 国货品牌 ──
+    "珀莱雅 薇诺娜 华熙生物 新品 业绩",
+    "完美日记 花西子 毛戈平 最新动态 2026",
+    "韩束 丸美 自然堂 谷雨 溪木源 品牌",
+    "巨子生物 可复美 瑷尔博士 最新",
+    # ── 韩妆日妆 ──
+    "爱茉莉太平洋 雪花秀 LG生活健康 最新",
+    "高丝 花王 芳珂 Fancl 美妆 品牌",
+    # ── 行业综合 ──
+    "美妆 品牌 融资 收购 上市 2026",
+    "化妆品 护肤 新品 发布 成分",
+    "化妆品行业 市场 趋势 新规 2026",
 ]
 
 GOOGLE_TECH_QUERIES = [
@@ -185,14 +197,15 @@ TOPIC_CONFIG = {
     "beauty": {
         "title_prefix": "💄 美妆行业日报",
         "sections": [
-            ("📊 市场动态", "数据、业绩、规模"),
-            ("🏭 行业事件", "品牌动态、合作、展会"),
-            ("🔍 趋势洞察", "产品趋势、消费洞察、政策"),
+            ("🏷️ 品牌动态", "新品发布、业绩财报、品牌合作"),
+            ("🤝 投融资·并购", "融资、收购、上市"),
+            ("📊 行业事件", "市场趋势、政策新规、渠道变化"),
+            ("🔍 产品·成分", "新品技术、热门成分、研发动态"),
         ],
         "google_queries": GOOGLE_BEAUTY_QUERIES,
         "rss_feeds": CHINESE_RSS_FEEDS["beauty"],
         "twitter": False,
-        "footer": "💡 数据来源：12个公众号 + Google News中文区 | 每日9:00自动推送",
+        "footer": "💡 来源：Google News品牌搜索（13个搜索词覆盖国际大牌+国货+韩妆日妆） | 精选14条 · 每日9:00自动推送",
     },
     "tech": {
         "title_prefix": "🤖 AI·3C·科技日报",
@@ -525,7 +538,7 @@ def main():
         print("❌ 无搜索结果，退出", file=sys.stderr)
         sys.exit(1)
 
-    selected = select_best(results, count=10)
+    selected = select_best(results, count=14)
     print(f"⭐ 精选 {len(selected)} 条")
 
     payload = build_post(args.topic, selected)
