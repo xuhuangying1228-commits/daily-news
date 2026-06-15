@@ -356,13 +356,17 @@ def build_post(topic: str, items: list[dict]) -> dict:
             content_blocks.append([
                 {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
             ])
-            # 摘要文字（过滤掉和标题重复的内容）
+            # 摘要文字：仅当摘要与标题明显不同时才显示
             summary = clean_html(item.get("body", ""))
-            if len(summary) > 60:
-                summary = summary[:58] + "…"
-            # 如果摘要是标题变体（含标题大部分内容），则跳过
-            if summary and item["title"] not in summary and summary != item["title"]:
-                content_blocks.append([{"tag": "text", "text": f"{summary}"}])
+            if len(summary) > 80:
+                summary = summary[:78] + "…"
+            is_dup = (
+                not summary or
+                summary.strip() == item["title"].strip() or
+                clean_html(item["title"]) == summary
+            )
+            if not is_dup:
+                content_blocks.append([{"tag": "text", "text": summary}])
             content_blocks.append([{"tag": "text", "text": ""}])
 
     # 剩余条目
@@ -373,10 +377,15 @@ def build_post(topic: str, items: list[dict]) -> dict:
             {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
         ])
         summary = clean_html(item.get("body") or "")
-        if len(summary) > 60:
-            summary = summary[:58] + "…"
-        if summary and item["title"] not in summary and summary != item["title"]:
-            content_blocks.append([{"tag": "text", "text": f"{summary}"}])
+        if len(summary) > 80:
+            summary = summary[:78] + "…"
+        is_dup = (
+            not summary or
+            summary.strip() == item["title"].strip() or
+            clean_html(item["title"]) == summary
+        )
+        if not is_dup:
+            content_blocks.append([{"tag": "text", "text": summary}])
         content_blocks.append([{"tag": "text", "text": ""}])
         idx += 1
 
