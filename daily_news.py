@@ -369,7 +369,7 @@ def build_post(topic: str, items: list[dict]) -> dict:
         content_blocks.append([
             {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
         ])
-        summary = re.sub(r"<[^>]+>", (item.get("body") or "").strip()).strip()
+        summary = re.sub(r"<[^>]+>", "", (item.get("body") or "").strip()).strip()
         if len(summary) > 60:
             summary = summary[:58] + "…"
         if summary and summary != item["title"]:
