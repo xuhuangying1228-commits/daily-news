@@ -34,6 +34,41 @@ def clean_html(text: str) -> str:
     text = unescape(text)                     # &nbsp; → 空格, &amp; → & 等
     return text.strip()
 
+
+def extract_summary(title: str, raw_desc: str) -> str:
+    """从描述文本中提取真正的摘要（剥掉标题重复部分）
+    返回空字符串表示无有效摘要
+    """
+    text = clean_html(raw_desc)
+    if not text or text == title:
+        return ""
+
+    # Google News 格式："source name  title text - actual summary..."
+    # 尝试剥掉来源名（通常是空格前的一小段英文/中文名）
+    text = re.sub(r"^[A-Za-z0-9.·\s]{2,30}\s{2,}", "", text).strip()
+
+    # 如果文本以标题开头，剥掉标题
+    if text.startswith(title):
+        remainder = text[len(title):].lstrip(" -–:：,，|·….")
+        if len(remainder) >= 5:
+            return remainder
+
+    # 标题可能以"第X天"等变体出现，尝试模糊匹配
+    # 取标题前一半（至少8个字符），如果文本以此开头则剥掉
+    for cut in range(len(title), 7, -1):
+        prefix = title[:cut]
+        if text.startswith(prefix):
+            remainder = text[len(prefix):].lstrip(" -–:：,，|·….")
+            if len(remainder) >= 5:
+                return remainder
+            break
+
+    # 没匹配到标题，但文本≠标题，直接返回
+    if text and text != title:
+        return text
+
+    return ""
+
 # ──────────────── Google News RSS ────────────────
 GOOGLE_NEWS_BASE = "https://news.google.com/rss/search"
 
@@ -151,11 +186,11 @@ def parse_google_news_rss(xml_text: str) -> list[dict]:
                     description = (child.text or "").strip()
 
             if title and link:
-                clean_desc = clean_html(description or "")
+                body = extract_summary(title, description or "")
                 results.append({
                     "title": title,
                     "href": link,
-                    "body": clean_desc or title,
+                    "body": body,
                 })
     except ET.ParseError as e:
         print(f"  ⚠ RSS解析失败: {e}", file=sys.stderr)
@@ -192,11 +227,11 @@ def parse_rss(xml_text: str) -> list[dict]:
                         desc = txt
 
             if title and link and "http" in link:
-                clean_desc = clean_html(desc or title)
+                body = extract_summary(title, desc or "")
                 results.append({
                     "title": title,
                     "href": link,
-                    "body": clean_desc[:120],
+                    "body": body[:120],
                 })
     except ET.ParseError as e:
         print(f"  ⚠ RSS解析失败: {e}", file=sys.stderr)
@@ -356,17 +391,12 @@ def build_post(topic: str, items: list[dict]) -> dict:
             content_blocks.append([
                 {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
             ])
-            # 摘要文字：仅当摘要与标题明显不同时才显示
-            summary = clean_html(item.get("body", ""))
-            if len(summary) > 80:
-                summary = summary[:78] + "…"
-            is_dup = (
-                not summary or
-                summary.strip() == item["title"].strip() or
-                clean_html(item["title"]) == summary
-            )
-            if not is_dup:
-                content_blocks.append([{"tag": "text", "text": summary}])
+            # 摘要文字（extract_summary 已保证 ≠ 标题）
+            body = (item.get("body") or "").strip()
+            if len(body) > 80:
+                body = body[:78] + "…"
+            if body:
+                content_blocks.append([{"tag": "text", "text": body}])
             content_blocks.append([{"tag": "text", "text": ""}])
 
     # 剩余条目
@@ -376,16 +406,11 @@ def build_post(topic: str, items: list[dict]) -> dict:
         content_blocks.append([
             {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
         ])
-        summary = clean_html(item.get("body") or "")
-        if len(summary) > 80:
-            summary = summary[:78] + "…"
-        is_dup = (
-            not summary or
-            summary.strip() == item["title"].strip() or
-            clean_html(item["title"]) == summary
-        )
-        if not is_dup:
-            content_blocks.append([{"tag": "text", "text": summary}])
+        body = (item.get("body") or "").strip()
+        if len(body) > 80:
+            body = body[:78] + "…"
+        if body:
+            content_blocks.append([{"tag": "text", "text": body}])
         content_blocks.append([{"tag": "text", "text": ""}])
         idx += 1
 
