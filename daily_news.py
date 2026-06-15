@@ -36,38 +36,95 @@ def clean_html(text: str) -> str:
 
 
 def extract_summary(title: str, raw_desc: str) -> str:
-    """从描述文本中提取真正的摘要（剥掉标题重复部分）
-    返回空字符串表示无有效摘要
+    """从 RSS description 提取真正文章摘要。
+    返回空字符串 = 无有效摘要，不显示。
     """
+    if not raw_desc:
+        return ""
+
     text = clean_html(raw_desc)
+
+    # ── 基础去重 ──
     if not text or text == title:
         return ""
 
-    # Google News 格式："source name  title text - actual summary..."
-    # 尝试剥掉来源名（通常是空格前的一小段英文/中文名）
+    # ── 仅有一个链接（无实际正文）→ 放弃 ──
+    if text.startswith("http") and len(text) < 100:
+        return ""
+
+    # ── 剥掉前面的来源名（英文短词 + 双空格/制表符）──
+    # Google News 格式："CNN  &nbsp;&nbsp;  title ..."
     text = re.sub(r"^[A-Za-z0-9.·\s]{2,30}\s{2,}", "", text).strip()
+    # 中文来源名 "新华网  "、"36氪  " 等（1-6个中文字 + 空格）
+    text = re.sub(r"^[\u4e00-\u9fff]{1,6}\s{2,}", "", text).strip()
 
-    # 如果文本以标题开头，剥掉标题
+    # ── 剥掉剩余开头中的已知来源尾缀（`source<br clear=...>` → 只剩 `source`）──
+    # 这些是 Google News 描述里残留的纯来源名，没有正文
+    SOURCE_TRASH = re.compile(
+        r"^(?:"
+        r"AgeClub|新华网|新浪财经|雪球|界面新闻|澎湃新闻|36氪|虎嗅|钛媒体|"
+        r"第一财经|每日经济新闻|财联社|华尔街见闻|蓝鲸|创业邦|"
+        r"品玩|极客公园|机器之心|量子位|InfoQ|CSDN|开源中国|"
+        r"Reuters|Bloomberg|CNN|BBC|NYT|WSJ|FT|Forbes|"
+        r"TechCrunch|The[ ]Verge|Wired|Ars[ ]Technica|"
+        r"VentureBeat|ZDNet|CNBC|Business[ ]Insider|"
+        r"Engadget|Gizmodo|Mashable|The[ ]Information|"
+        r"Tom.?.Hardware|AnandTech|MacRumors|9to5Mac|"
+        r"SamMobile|Android[ ]Authority|Phone[ ]Arena|"
+        r"GSMArena|Neowin|Windows[ ]Central|The[ ]Register|"
+        r"GitHub|Hacker[ ]News|Reddit|Twitter|X\.com|"
+        r"IBM|Microsoft|Google|Apple|Meta|Amazon|OpenAI|NVIDIA|"
+        r"CBNData|美业观察|化妆品观察|青眼|聚美丽|品观|"
+        r"华丽志|WWD|Beauty[ ]Matter|Cosmetic[ ]Business|"
+        r"Global[ ]Cosmetics[ ]News|Premium[ ]Beauty[ ]News"
+        r")$"
+    )
+    if SOURCE_TRASH.match(text):
+        return ""
+
+    # ── 剥掉标题前缀 ──
+    text = _strip_title(text, title)
+
+    if not text or text == title:
+        return ""
+
+    # ── 最终校验：必须是"看起来像文章摘要"的文本 ──
+    text = text.strip()
+    # 去掉末尾残余的来源名（"xx 雪球"、"xx IBM" 等）
+    text = re.sub(r"\s+(?:雪球|新浪|网易|腾讯|搜狐|凤凰|新华网|界面|澎湃|"
+                  r"36氪|钛媒体|财联社|华尔街见闻|蓝鲸|"
+                  r"Reuters|Bloomberg|CNN|BBC|TechCrunch|The[ ]Verge|"
+                  r"Wired|Forbes|CNBC|IBM|Microsoft|Google|Apple|Meta)$",
+                  "", text).strip()
+    # 太短 → 不是摘要
+    if len(text) < 12:
+        return ""
+    # 纯来源名（中文 <= 6 字，英文 <= 20 字符）→ 不是摘要
+    if re.match(r"^[\u4e00-\u9fff]{1,6}$", text):
+        return ""
+    if re.match(r"^[A-Za-z0-9.·&\s]{1,20}$", text):
+        return ""
+    # 以查看更多/阅读全文结尾但无实质内容
+    if re.match(r"^.{0,5}(查看更多|阅读全文|Read more)\.*$", text):
+        return ""
+
+    return text
+
+
+def _strip_title(text: str, title: str) -> str:
+    """剥掉文本开头的标题（含模糊匹配）"""
     if text.startswith(title):
-        remainder = text[len(title):].lstrip(" -–:：,，|·….")
-        if len(remainder) >= 5:
-            return remainder
+        return text[len(title):].lstrip(" -–:：,，|·….")
 
-    # 标题可能以"第X天"等变体出现，尝试模糊匹配
-    # 取标题前一半（至少8个字符），如果文本以此开头则剥掉
+    # 模糊：标题前一半（至少 8 字符）出现在文本开头
     for cut in range(len(title), 7, -1):
         prefix = title[:cut]
         if text.startswith(prefix):
             remainder = text[len(prefix):].lstrip(" -–:：,，|·….")
             if len(remainder) >= 5:
                 return remainder
-            break
-
-    # 没匹配到标题，但文本≠标题，直接返回
-    if text and text != title:
-        return text
-
-    return ""
+            return ""  # 只有前缀无实质内容
+    return text
 
 # ──────────────── Google News RSS ────────────────
 GOOGLE_NEWS_BASE = "https://news.google.com/rss/search"
