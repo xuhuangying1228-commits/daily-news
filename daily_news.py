@@ -143,10 +143,13 @@ def parse_google_news_rss(xml_text: str) -> list[dict]:
                     description = (child.text or "").strip()
 
             if title and link:
+                # 清理 description 中的 HTML 标签
+                clean_desc = description or ""
+                clean_desc = re.sub(r"<[^>]+>", "", clean_desc).strip()
                 results.append({
                     "title": title,
                     "href": link,
-                    "body": description or title,
+                    "body": clean_desc or title,
                 })
     except ET.ParseError as e:
         print(f"  ⚠ RSS解析失败: {e}", file=sys.stderr)
@@ -317,65 +320,47 @@ def select_best(results: list[dict], count: int = 10) -> list[dict]:
     return [r for _, r in scored[:count]]
 
 
-def build_post(topic: str, items: list[dict]) -> dict:
-    """构建飞书 post 消息"""
+def build_text_message(topic: str, items: list[dict]) -> dict:
+    """构建飞书纯文本消息（最可靠的格式）"""
     config = TOPIC_CONFIG[topic]
     today = datetime.now().strftime("%Y.%m.%d")
     title = f"{config['title_prefix']} | {today}"
 
-    content_blocks = []
+    lines = [title, ""]
+
     sections = config["sections"]
     per_section = max(1, min(4, len(items) // len(sections)))
 
     idx = 0
     for section_title, _ in sections:
-        section_items = []
+        lines.append(section_title)
         for _ in range(per_section):
             if idx >= len(items):
                 break
-            section_items.append(items[idx])
-            idx += 1
-
-        if not section_items:
-            continue
-
-        content_blocks.append([{"tag": "text", "text": section_title}])
-        for item in section_items:
+            item = items[idx]
+            # 标题 + 链接，一行搞定
             short_title = item["title"]
-            if len(short_title) > 24:
-                short_title = short_title[:22] + "…"
-            content_blocks.append([
-                {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
-            ])
-            summary = item.get("body", "").strip()
-            if len(summary) > 50:
-                summary = summary[:48] + "…"
-            if summary:
-                content_blocks.append([{"tag": "text", "text": f"   {summary}"}])
-            content_blocks.append([{"tag": "text", "text": ""}])
+            if len(short_title) > 30:
+                short_title = short_title[:28] + "…"
+            lines.append(f"▶ {short_title}")
+            lines.append(f"   🔗 {item['href']}")
+            idx += 1
+        lines.append("")
 
-    # 剩余
+    # 剩余条目
     while idx < len(items):
         item = items[idx]
-        short_title = item["title"][:22] + "…" if len(item["title"]) > 24 else item["title"]
-        content_blocks.append([
-            {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
-        ])
-        content_blocks.append([{"tag": "text", "text": ""}])
+        short_title = item["title"][:28] + "…" if len(item["title"]) > 30 else item["title"]
+        lines.append(f"▶ {short_title}")
+        lines.append(f"   🔗 {item['href']}")
         idx += 1
 
-    content_blocks.append([{"tag": "text", "text": config["footer"]}])
+    lines.append("")
+    lines.append(config["footer"])
 
     return {
-        "msg_type": "post",
-        "content": {
-            "post": {
-                "zh_cn": {
-                    "title": title,
-                    "content": content_blocks,
-                }
-            }
-        },
+        "msg_type": "text",
+        "content": {"text": "\n".join(lines)},
     }
 
 
@@ -419,7 +404,7 @@ def main():
     selected = select_best(results, count=10)
     print(f"⭐ 精选 {len(selected)} 条")
 
-    payload = build_post(args.topic, selected)
+    payload = build_text_message(args.topic, selected)
     ok = push_to_feishu(payload)
     sys.exit(0 if ok else 1)
 
