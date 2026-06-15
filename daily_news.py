@@ -320,47 +320,77 @@ def select_best(results: list[dict], count: int = 10) -> list[dict]:
     return [r for _, r in scored[:count]]
 
 
-def build_text_message(topic: str, items: list[dict]) -> dict:
-    """构建飞书纯文本消息（最可靠的格式）"""
+def build_post(topic: str, items: list[dict]) -> dict:
+    """构建飞书富文本 post 消息（标题可点击 + 摘要文字）"""
     config = TOPIC_CONFIG[topic]
     today = datetime.now().strftime("%Y.%m.%d")
     title = f"{config['title_prefix']} | {today}"
 
-    lines = [title, ""]
-
+    content_blocks = []
     sections = config["sections"]
     per_section = max(1, min(4, len(items) // len(sections)))
 
     idx = 0
     for section_title, _ in sections:
-        lines.append(section_title)
+        section_items = []
         for _ in range(per_section):
             if idx >= len(items):
                 break
-            item = items[idx]
-            # 标题 + 链接，一行搞定
-            short_title = item["title"]
-            if len(short_title) > 30:
-                short_title = short_title[:28] + "…"
-            lines.append(f"▶ {short_title}")
-            lines.append(f"   🔗 {item['href']}")
+            section_items.append(items[idx])
             idx += 1
-        lines.append("")
+
+        if not section_items:
+            continue
+
+        # 区块标题
+        content_blocks.append([{"tag": "text", "text": section_title}])
+
+        for item in section_items:
+            # 标题（可点击链接）
+            short_title = item["title"]
+            content_blocks.append([
+                {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
+            ])
+            # 摘要文字
+            summary = item.get("body", "").strip()
+            # 再次确保无残留 HTML
+            summary = re.sub(r"<[^>]+>", "", summary).strip()
+            # 截断过长摘要
+            if len(summary) > 60:
+                summary = summary[:58] + "…"
+            if summary and summary != item["title"]:
+                content_blocks.append([{"tag": "text", "text": f"{summary}"}])
+            content_blocks.append([{"tag": "text", "text": ""}])
 
     # 剩余条目
     while idx < len(items):
         item = items[idx]
-        short_title = item["title"][:28] + "…" if len(item["title"]) > 30 else item["title"]
-        lines.append(f"▶ {short_title}")
-        lines.append(f"   🔗 {item['href']}")
+        short_title = item["title"] if len(item["title"]) <= 30 else item["title"][:28] + "…"
+        content_blocks.append([
+            {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
+        ])
+        summary = re.sub(r"<[^>]+>", (item.get("body") or "").strip()).strip()
+        if len(summary) > 60:
+            summary = summary[:58] + "…"
+        if summary and summary != item["title"]:
+            content_blocks.append([{"tag": "text", "text": f"{summary}"}])
+        content_blocks.append([{"tag": "text", "text": ""}])
         idx += 1
 
-    lines.append("")
-    lines.append(config["footer"])
+    # 底部分割线 + footer
+    content_blocks.append([{"tag": "text", "text": "——"}])
+    content_blocks.append([{"tag": "text", "text": config["footer"]}])
 
     return {
-        "msg_type": "text",
-        "content": {"text": "\n".join(lines)},
+        "msg_type": "post",
+        "content": {
+            "post": {
+                "zh_cn": {
+                    "title": title,
+                    "content": content_blocks,
+                }
+            }
+        },
     }
 
 
@@ -404,7 +434,7 @@ def main():
     selected = select_best(results, count=10)
     print(f"⭐ 精选 {len(selected)} 条")
 
-    payload = build_text_message(args.topic, selected)
+    payload = build_post(args.topic, selected)
     ok = push_to_feishu(payload)
     sys.exit(0 if ok else 1)
 
