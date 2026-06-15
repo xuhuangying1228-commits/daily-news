@@ -1,0 +1,46 @@
+name: 行业日报
+
+on:
+  schedule:
+    # 北京时间 9:00 = UTC 1:00
+    - cron: "0 1 * * *"
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  daily-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install deps
+        run: pip install pyyaml
+
+      - name: Generate all reports
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: |
+          python3 -c "
+          import yaml, subprocess, sys
+          with open('topics.yaml') as f:
+              data = yaml.safe_load(f)
+          topics = data.get('topics', {})
+          ok = True
+          for name, cfg in topics.items():
+              if not cfg.get('enabled', True):
+                  print(f'⏭  {name}: 已禁用，跳过')
+                  continue
+              print(f'▶  {name}: 开始生成...')
+              r = subprocess.run([sys.executable, 'daily_news.py', '--topic', name])
+              if r.returncode != 0:
+                  print(f'❌ {name}: 失败', file=sys.stderr)
+                  ok = False
+          sys.exit(0 if ok else 1)
+          "
