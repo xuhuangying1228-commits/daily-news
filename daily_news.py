@@ -463,6 +463,70 @@ def select_best(results: list[dict], count: int = 10) -> list[dict]:
     return [r for _, r in scored[:count]]
 
 
+def categorize_item(item: dict) -> str:
+    """根据标题和摘要内容智能分类到对应板块。
+    分类优先级：投融资·并购 > 产品·成分 > 品牌动态 > 行业事件（兜底）
+    """
+    text = f"{item['title']} {item.get('body', '')}"
+
+    # ── 1) 投融资·并购（最具体，优先判断）──
+    # 明确的投融资关键词
+    invest_exact = [
+        "融资", "A轮", "B轮", "C轮", "D轮", "天使轮", "种子轮",
+        "Pre-A", "Pre-IPO", "战略投资", "收购", "并购", "被收购",
+        "IPO", "估值", "母基金", "LP注资", "PE投资", "VC投资",
+        "募资", "招股", "过会", "挂牌", "借壳", "递表",
+    ]
+    if any(kw in text for kw in invest_exact):
+        return "🤝 投融资·并购"
+    # "上市"：仅当有 IPO/交易所 上下文才算投融资（排除"新品上市""产品上市"）
+    if "上市" in text:
+        if "新品上市" in text or "产品上市" in text or "系列上市" in text or "正式上市" in text:
+            pass  # 品牌动态
+        elif any(kw in text for kw in [
+            "港交所", "深交所", "上交所", "纳斯达克", "纽交所", "北交所",
+            "IPO", "募资", "招股书", "挂牌上市", "过会", "递表", "转板",
+            "股价", "市值", "总市值", "首次公开", "申请上市", "启动上市",
+        ]):
+            return "🤝 投融资·并购"
+
+    # ── 2) 产品·成分（仅真正的成分/原料/科技词，不含通用品类词）──
+    # 注意：精华/面霜/防晒等品类词不在此列，避免品牌动态误判为成分类
+    product_kw = [
+        "成分", "配方", "原料", "提取物", "活性成分", "核心成分",
+        "玻尿酸", "透明质酸", "胶原蛋白", "烟酰胺", "视黄醇",
+        "胜肽", "神经酰胺", "依克多因", "二裂酵母", "麦色滤",
+        "虾青素", "水杨酸", "果酸", "壬二酸", "传明酸",
+        "抗氧化", "抗糖化", "抗炎成分", "修护屏障",
+        "防晒值", "SPF", "PA+", "专利技术", "核心科技",
+        "新成分", "独家成分", "专研成分",
+    ]
+    if any(kw in text for kw in product_kw):
+        return "🔍 产品·成分"
+
+    # ── 3) 品牌动态 ──
+    brand_kw = [
+        "新品", "发布", "推出", "上新", "首发",
+        "财报", "业绩", "营收", "净利润", "同比增长", "同比下滑",
+        "合作", "联名", "跨界", "代言", "代言人", "官宣",
+        "开店", "门店", "旗舰店", "入驻", "首店", "专柜",
+        "涨价", "降价", "调价", "升级", "焕新",
+        "换logo", "品牌升级", "品牌焕新", "换帅",
+        "电商", "直播", "直播间", "达人",
+    ]
+    if any(kw in text for kw in brand_kw):
+        # 排除：如含 新规/法规/政策/监管/报告 → 行业事件
+        if any(kw in text for kw in [
+            "新规", "法规", "政策出台", "监管", "标准发布",
+            "行业报告", "白皮书", "消费趋势", "市场规模",
+        ]):
+            return "📊 行业事件"
+        return "🏷️ 品牌动态"
+
+    # ── 4) 兜底：行业事件 ──
+    return "📊 行业事件"
+
+
 def build_post(topic: str, items: list[dict]) -> dict:
     """构建飞书富文本 post 消息（标题可点击 + 摘要文字）"""
     config = TOPIC_CONFIG[topic]
@@ -471,51 +535,50 @@ def build_post(topic: str, items: list[dict]) -> dict:
 
     content_blocks = []
     sections = config["sections"]
-    per_section = max(1, min(4, len(items) // len(sections)))
 
-    idx = 0
+    # ── 智能分类 ──
+    section_buckets: dict[str, list[dict]] = {s[0]: [] for s in sections}
+    for item in items:
+        cat = categorize_item(item)
+        bucket = section_buckets.get(cat)
+        if bucket is not None:
+            bucket.append(item)
+        else:
+            # 未匹配（理论上不会），兜底放行业事件
+            section_buckets.setdefault("📊 行业事件", []).append(item)
+
+    # ── 构建板块：每个最多4条，总14条，跳过空板块 ──
+    max_total = 14
+    assigned = 0
     for section_title, _ in sections:
-        section_items = []
-        for _ in range(per_section):
-            if idx >= len(items):
-                break
-            section_items.append(items[idx])
-            idx += 1
+        bucket = section_buckets.get(section_title, [])
+        if not bucket:
+            continue  # 无内容板块直接跳过
 
-        if not section_items:
-            continue
+        # 每个板块最多4条
+        take = min(len(bucket), 4)
+        # 但不能超过总量上限
+        if assigned + take > max_total:
+            take = max_total - assigned
+        if take <= 0:
+            break
+        section_items = bucket[:take]
+        assigned += take
 
         # 区块标题
         content_blocks.append([{"tag": "text", "text": section_title}])
 
         for item in section_items:
-            # 标题（可点击链接）
             short_title = item["title"]
             content_blocks.append([
                 {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
             ])
-            # 摘要文字（extract_summary 已保证 ≠ 标题）
             body = (item.get("body") or "").strip()
             if len(body) > 80:
                 body = body[:78] + "…"
             if body:
                 content_blocks.append([{"tag": "text", "text": body}])
             content_blocks.append([{"tag": "text", "text": ""}])
-
-    # 剩余条目
-    while idx < len(items):
-        item = items[idx]
-        short_title = item["title"] if len(item["title"]) <= 30 else item["title"][:28] + "…"
-        content_blocks.append([
-            {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
-        ])
-        body = (item.get("body") or "").strip()
-        if len(body) > 80:
-            body = body[:78] + "…"
-        if body:
-            content_blocks.append([{"tag": "text", "text": body}])
-        content_blocks.append([{"tag": "text", "text": ""}])
-        idx += 1
 
     # 底部分割线 + footer
     content_blocks.append([{"tag": "text", "text": "——"}])
