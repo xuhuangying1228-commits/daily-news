@@ -14,6 +14,7 @@ import urllib.request
 import urllib.parse
 import re
 from datetime import datetime
+from html import unescape
 from xml.etree import ElementTree as ET
 
 
@@ -25,6 +26,13 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
+
+def clean_html(text: str) -> str:
+    """去除 HTML 标签 + 转义 HTML 实体（&nbsp; &amp; 等）"""
+    text = re.sub(r"<[^>]+>", "", text)      # 去掉标签
+    text = unescape(text)                     # &nbsp; → 空格, &amp; → & 等
+    return text.strip()
 
 # ──────────────── Google News RSS ────────────────
 GOOGLE_NEWS_BASE = "https://news.google.com/rss/search"
@@ -143,9 +151,7 @@ def parse_google_news_rss(xml_text: str) -> list[dict]:
                     description = (child.text or "").strip()
 
             if title and link:
-                # 清理 description 中的 HTML 标签
-                clean_desc = description or ""
-                clean_desc = re.sub(r"<[^>]+>", "", clean_desc).strip()
+                clean_desc = clean_html(description or "")
                 results.append({
                     "title": title,
                     "href": link,
@@ -186,8 +192,7 @@ def parse_rss(xml_text: str) -> list[dict]:
                         desc = txt
 
             if title and link and "http" in link:
-                clean_desc = desc or title
-                clean_desc = re.sub(r"<[^>]+>", "", clean_desc).strip()
+                clean_desc = clean_html(desc or title)
                 results.append({
                     "title": title,
                     "href": link,
@@ -351,14 +356,12 @@ def build_post(topic: str, items: list[dict]) -> dict:
             content_blocks.append([
                 {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
             ])
-            # 摘要文字
-            summary = item.get("body", "").strip()
-            # 再次确保无残留 HTML
-            summary = re.sub(r"<[^>]+>", "", summary).strip()
-            # 截断过长摘要
+            # 摘要文字（过滤掉和标题重复的内容）
+            summary = clean_html(item.get("body", ""))
             if len(summary) > 60:
                 summary = summary[:58] + "…"
-            if summary and summary != item["title"]:
+            # 如果摘要是标题变体（含标题大部分内容），则跳过
+            if summary and item["title"] not in summary and summary != item["title"]:
                 content_blocks.append([{"tag": "text", "text": f"{summary}"}])
             content_blocks.append([{"tag": "text", "text": ""}])
 
@@ -369,10 +372,10 @@ def build_post(topic: str, items: list[dict]) -> dict:
         content_blocks.append([
             {"tag": "a", "text": f"▶ {short_title}", "href": item["href"]}
         ])
-        summary = re.sub(r"<[^>]+>", "", (item.get("body") or "").strip()).strip()
+        summary = clean_html(item.get("body") or "")
         if len(summary) > 60:
             summary = summary[:58] + "…"
-        if summary and summary != item["title"]:
+        if summary and item["title"] not in summary and summary != item["title"]:
             content_blocks.append([{"tag": "text", "text": f"{summary}"}])
         content_blocks.append([{"tag": "text", "text": ""}])
         idx += 1
