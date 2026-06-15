@@ -29,9 +29,12 @@ HEADERS = {
 
 
 def clean_html(text: str) -> str:
-    """去除 HTML 标签 + 转义 HTML 实体（&nbsp; &amp; 等）"""
+    """去除 HTML 标签 + 转义 HTML 实体 + 全角空格→半角"""
     text = re.sub(r"<[^>]+>", "", text)      # 去掉标签
     text = unescape(text)                     # &nbsp; → 空格, &amp; → & 等
+    text = text.replace("\u3000", " ")        # 全角空格→半角
+    text = text.replace("\u00a0", " ")        # non-breaking space
+    text = re.sub(r"\s{2,}", " ", text)       # 多个空格→单个
     return text.strip()
 
 
@@ -76,7 +79,10 @@ def extract_summary(title: str, raw_desc: str) -> str:
         r"IBM|Microsoft|Google|Apple|Meta|Amazon|OpenAI|NVIDIA|"
         r"CBNData|美业观察|化妆品观察|青眼|聚美丽|品观|"
         r"华丽志|WWD|Beauty[ ]Matter|Cosmetic[ ]Business|"
-        r"Global[ ]Cosmetics[ ]News|Premium[ ]Beauty[ ]News"
+        r"Global[ ]Cosmetics[ ]News|Premium[ ]Beauty[ ]News|"
+        r"Research[ ]and[ ]Markets|Grand[ ]View[ ]Research|"
+        r"Fortune[ ]Business[ ]Insights|Mordor[ ]Intelligence|"
+        r"Market[ ]Research[ ]Future|PR[ ]Newswire"
         r")$"
     )
     if SOURCE_TRASH.match(text):
@@ -88,24 +94,51 @@ def extract_summary(title: str, raw_desc: str) -> str:
     if not text or text == title:
         return ""
 
-    # ── 最终校验：必须是"看起来像文章摘要"的文本 ──
+    # ── 最终校验：宁可没摘要，绝不放垃圾 ──
     text = text.strip()
-    # 去掉末尾残余的来源名（"xx 雪球"、"xx IBM" 等）
-    text = re.sub(r"\s+(?:雪球|新浪|网易|腾讯|搜狐|凤凰|新华网|界面|澎湃|"
-                  r"36氪|钛媒体|财联社|华尔街见闻|蓝鲸|"
-                  r"Reuters|Bloomberg|CNN|BBC|TechCrunch|The[ ]Verge|"
-                  r"Wired|Forbes|CNBC|IBM|Microsoft|Google|Apple|Meta)$",
-                  "", text).strip()
-    # 太短 → 不是摘要
-    if len(text) < 12:
+    if not text or text == title:
         return ""
-    # 纯来源名（中文 <= 6 字，英文 <= 20 字符）→ 不是摘要
+
+    # 1) 长度门槛：至少 15 个字符
+    if len(text) < 15:
+        return ""
+
+    # 2) 纯中文来源名（<=6 字）
     if re.match(r"^[\u4e00-\u9fff]{1,6}$", text):
         return ""
-    if re.match(r"^[A-Za-z0-9.·&\s]{1,20}$", text):
+
+    # 3) 公司/机构名 → 绝对不是摘要
+    if re.search(r"\b(?:Inc\.?|Ltd\.?|LLC|LLP|Corp\.?|GmbH|AG|S\.A\.|PLC|Pte\.?\s*Ltd|Co\.?\s*Ltd)\b", text):
         return ""
-    # 以查看更多/阅读全文结尾但无实质内容
-    if re.match(r"^.{0,5}(查看更多|阅读全文|Read more)\.*$", text):
+    # 看上去是纯机构名的模式（每个词首字母大写，2-5个词，无动词）
+    words = [w for w in text.split() if len(w) > 1]
+    if 2 <= len(words) <= 5 and all(re.match(r"^[A-Z][a-z]+$", w) for w in words):
+        return ""
+
+    # 4) 行业报告标题模式："X市场 规模 份额 增长 报告"（无实质内容）
+    if re.match(r"^.{2,60}(?:市场|行業)(?:规模|份额|增长|趋势|分析|预测|报告|展望)", text):
+        if len(text) < 30 or not re.search(r"[。，、；！？,!?;]", text):
+            return ""  # 像报告标题但无标点/句式 → 不是摘要
+
+    # 5) 开头就是来源名的残余（没被前面正则抓到的情况）
+    tail_source = re.compile(
+        r"\s+(?:雪球|新浪|网易|腾讯|搜狐|凤凰|新华网|界面|澎湃|"
+        r"36氪|钛媒体|财联社|华尔街见闻|蓝鲸|"
+        r"Reuters|Bloomberg|CNN|BBC|TechCrunch|The[ ]Verge|"
+        r"Wired|Forbes|CNBC|IBM|Microsoft|Google|Apple|Meta|"
+        r"Global[ ]Market[ ]Insights|Research[ ]and[ ]Markets|"
+        r"PR[ ]Newswire|GlobeNewswire|Business[ ]Wire|"
+        r"Market[ ]Research[ ]Future|Grand[ ]View[ ]Research|"
+        r"Allied[ ]Market[ ]Research|Transparency[ ]Market[ ]Research|"
+        r"Mordor[ ]Intelligence|Fortune[ ]Business[ ]Insights)$",
+        re.I
+    )
+    text = tail_source.sub("", text).strip()
+    if not text or len(text) < 12:
+        return ""
+
+    # 6) 以"查看更多/阅读全文"结尾且无其他内容
+    if re.match(r"^.{0,10}(查看更多|阅读全文|Read more)[.…]*$", text):
         return ""
 
     return text
