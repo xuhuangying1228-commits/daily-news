@@ -458,67 +458,53 @@ def select_best(results: list[dict], count: int = 10) -> list[dict]:
     return [r for _, r in scored[:count]]
 
 
-def categorize_item(item: dict) -> str:
+def categorize_item(item: dict, rules: list[dict]) -> str:
     """根据标题和摘要内容智能分类到对应板块。
-    分类优先级：投融资·并购 > 产品·成分 > 品牌动态 > 行业事件（兜底）
+    分类规则由 topics.yaml 中的 categorize_rules 定义，按 priority 排序后逐一匹配。
     """
     text = f"{item['title']} {item.get('body', '')}"
 
-    # ── 1) 投融资·并购（最具体，优先判断）──
-    # 明确的投融资关键词
-    invest_exact = [
-        "融资", "A轮", "B轮", "C轮", "D轮", "天使轮", "种子轮",
-        "Pre-A", "Pre-IPO", "战略投资", "收购", "并购", "被收购",
-        "IPO", "估值", "母基金", "LP注资", "PE投资", "VC投资",
-        "募资", "招股", "过会", "挂牌", "借壳", "递表",
-    ]
-    if any(kw in text for kw in invest_exact):
-        return "🤝 投融资·并购"
-    # "上市"：仅当有 IPO/交易所 上下文才算投融资（排除"新品上市""产品上市"）
-    if "上市" in text:
-        if "新品上市" in text or "产品上市" in text or "系列上市" in text or "正式上市" in text:
-            pass  # 品牌动态
-        elif any(kw in text for kw in [
-            "港交所", "深交所", "上交所", "纳斯达克", "纽交所", "北交所",
-            "IPO", "募资", "招股书", "挂牌上市", "过会", "递表", "转板",
-            "股价", "市值", "总市值", "首次公开", "申请上市", "启动上市",
-        ]):
-            return "🤝 投融资·并购"
+    # 规则按 priority 排序
+    sorted_rules = sorted(rules, key=lambda r: r.get("priority", 99))
 
-    # ── 2) 产品·成分（仅真正的成分/原料/科技词，不含通用品类词）──
-    # 注意：精华/面霜/防晒等品类词不在此列，避免品牌动态误判为成分类
-    product_kw = [
-        "成分", "配方", "原料", "提取物", "活性成分", "核心成分",
-        "玻尿酸", "透明质酸", "胶原蛋白", "烟酰胺", "视黄醇",
-        "胜肽", "神经酰胺", "依克多因", "二裂酵母", "麦色滤",
-        "虾青素", "水杨酸", "果酸", "壬二酸", "传明酸",
-        "抗氧化", "抗糖化", "抗炎成分", "修护屏障",
-        "防晒值", "SPF", "PA+", "专利技术", "核心科技",
-        "新成分", "独家成分", "专研成分",
-    ]
-    if any(kw in text for kw in product_kw):
-        return "🔍 产品·成分"
+    for rule in sorted_rules:
+        # ── exact 匹配 ──
+        for kw in rule.get("exact", []):
+            if kw in text:
+                return rule["section"]
 
-    # ── 3) 品牌动态 ──
-    brand_kw = [
-        "新品", "发布", "推出", "上新", "首发",
-        "财报", "业绩", "营收", "净利润", "同比增长", "同比下滑",
-        "合作", "联名", "跨界", "代言", "代言人", "官宣",
-        "开店", "门店", "旗舰店", "入驻", "首店", "专柜",
-        "涨价", "降价", "调价", "升级", "焕新",
-        "换logo", "品牌升级", "品牌焕新", "换帅",
-        "电商", "直播", "直播间", "达人",
-    ]
-    if any(kw in text for kw in brand_kw):
-        # 排除：如含 新规/法规/政策/监管/报告 → 行业事件
-        if any(kw in text for kw in [
-            "新规", "法规", "政策出台", "监管", "标准发布",
-            "行业报告", "白皮书", "消费趋势", "市场规模",
-        ]):
-            return "📊 行业事件"
-        return "🏷️ 品牌动态"
+        # ── context 匹配（如"上市"需要上下文才算投融资）──
+        for ctx in rule.get("context", []):
+            trigger, context_words = ctx[0], ctx[1]
+            if trigger in text:
+                # "新品上市"等排除
+                if any(excl in text for excl in ["新品上市", "产品上市", "系列上市", "正式上市"]):
+                    continue
+                if any(kw in text for kw in context_words):
+                    return rule["section"]
 
-    # ── 4) 兜底：行业事件 ──
+        # ── match 匹配（先检查 exclude，再返回）──
+        matched = False
+        for kw in rule.get("match", []):
+            if kw in text:
+                matched = True
+                break
+        if matched:
+            exclude_to = rule.get("exclude_to")
+            exclude_kw = rule.get("exclude", [])
+            if exclude_kw and exclude_to and any(kw in text for kw in exclude_kw):
+                return exclude_to
+            return rule["section"]
+
+        # ── 匹配未命中但命中 exclude（如"市场规模报告"不含品牌词但含 exclude 词）──
+        exclude_to = rule.get("exclude_to")
+        exclude_kw = rule.get("exclude", [])
+        if exclude_kw and exclude_to and any(kw in text for kw in exclude_kw):
+            return exclude_to
+
+    # fallback: 最后一条规则（priority 最低的）
+    if sorted_rules:
+        return sorted_rules[-1]["section"]
     return "📊 行业事件"
 
 
@@ -532,15 +518,17 @@ def build_post(topic: str, items: list[dict]) -> dict:
     sections = config["sections"]
 
     # ── 智能分类 ──
+    rules = config.get("categorize_rules", [])
     section_buckets: dict[str, list[dict]] = {s[0]: [] for s in sections}
     for item in items:
-        cat = categorize_item(item)
+        cat = categorize_item(item, rules)
         bucket = section_buckets.get(cat)
         if bucket is not None:
             bucket.append(item)
         else:
-            # 未匹配（理论上不会），兜底放行业事件
-            section_buckets.setdefault("📊 行业事件", []).append(item)
+            # 未匹配到对应板块，兜底放最后
+            fallback_section = sections[-1][0]
+            section_buckets.setdefault(fallback_section, []).append(item)
 
     # ── 构建板块：每个最多4条，总数从配置读取，跳过空板块 ──
     max_total = config.get("news_count", 14)
