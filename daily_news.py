@@ -32,6 +32,156 @@ for _key in list(os.environ):
 # ──────────────── 飞书 Webhook ────────────────
 FEISHU_URL = os.environ["FEISHU_WEBHOOK_URL"]
 
+# ──────────────── 去重：发送历史持久化 ────────────────
+SENT_HISTORY_FILE = _SCRIPT_DIR / "sent_history.json"
+HISTORY_MAX_DAYS = 7
+
+
+def _clean_title(title: str) -> str:
+    """标准化标题为可比字符串（去标点/空格/大小写）"""
+    return re.sub(r"[^\u4e00-\u9fff\w]", "", title.lower())
+
+
+def _title_bigrams(title: str) -> set:
+    """提取字符级 bigram 集合（用于中文相似度计算）"""
+    cleaned = _clean_title(title)
+    return {cleaned[i : i + 2] for i in range(len(cleaned) - 1)}
+
+
+def _title_signature(title: str) -> str:
+    """标题签名（前60个标准化字符），用于跨天去重精确匹配"""
+    return _clean_title(title)[:60]
+
+
+def deduplicate_near(results: list[dict]) -> list[dict]:
+    """同天内近义去重：标题 bigram 相似度 >0.45 或前30字相同 → 视为重复。
+    保留标题更长/有正文的那条。
+    """
+    if len(results) <= 1:
+        return results
+
+    sigs = [_title_bigrams(r["title"]) for r in results]
+    cleaned = [_clean_title(r["title"]) for r in results]
+    to_remove: set[int] = set()
+
+    for i in range(len(results)):
+        if i in to_remove:
+            continue
+        for j in range(i + 1, len(results)):
+            if j in to_remove:
+                continue
+
+            is_dup = False
+
+            # 方法1：前30个标准化字符完全一致
+            if len(cleaned[i]) >= 20 and len(cleaned[j]) >= 20:
+                prefix_len = min(len(cleaned[i]), len(cleaned[j]), 30)
+                if cleaned[i][:prefix_len] == cleaned[j][:prefix_len]:
+                    is_dup = True
+
+            # 方法2：bigram Jaccard > 0.45
+            if not is_dup and sigs[i] and sigs[j]:
+                inter = len(sigs[i] & sigs[j])
+                union = len(sigs[i] | sigs[j])
+                if union > 0 and inter / union > 0.45:
+                    is_dup = True
+
+            if is_dup:
+                # 保留更优的一条：有正文 > 标题更长
+                has_i = bool(results[i].get("body"))
+                has_j = bool(results[j].get("body"))
+                if has_i and not has_j:
+                    to_remove.add(j)
+                elif has_j and not has_i:
+                    to_remove.add(i)
+                    break
+                elif len(results[j]["title"]) > len(results[i]["title"]):
+                    to_remove.add(i)
+                    break
+                else:
+                    to_remove.add(j)
+
+    kept = [r for idx, r in enumerate(results) if idx not in to_remove]
+    if len(kept) < len(results):
+        print(f"  🔄 同天内去重: {len(results)} → {len(kept)} 条")
+    return kept
+
+
+# ──────────────── 跨天去重 ────────────────
+def _load_sent_history() -> dict:
+    if not SENT_HISTORY_FILE.exists():
+        return {}
+    try:
+        with open(SENT_HISTORY_FILE) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_sent_history(history: dict):
+    SENT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SENT_HISTORY_FILE, "w") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+
+def _cleanup_old_history(history: dict):
+    """清除 7 天前的历史记录"""
+    from datetime import timedelta
+
+    cutoff = (datetime.now() - timedelta(days=HISTORY_MAX_DAYS)).strftime("%Y-%m-%d")
+    for topic_key in list(history.keys()):
+        if isinstance(history[topic_key], dict) and "items" in history[topic_key]:
+            old = len(history[topic_key]["items"])
+            history[topic_key]["items"] = [
+                it
+                for it in history[topic_key]["items"]
+                if it.get("date", "") >= cutoff
+            ]
+            if old > len(history[topic_key]["items"]):
+                print(
+                    f"  🧹 清理 {topic_key} 历史: {old} → {len(history[topic_key]['items'])} 条"
+                )
+
+
+def filter_sent_items(topic: str, results: list[dict]) -> list[dict]:
+    """跨天去重：过滤掉前几天已推送过的内容"""
+    history = _load_sent_history()
+    _cleanup_old_history(history)
+    _save_sent_history(history)
+
+    sent_sigs: set[str] = set()
+    for item in history.get(topic, {}).get("items", []):
+        sent_sigs.add(item.get("sig", ""))
+
+    filtered, removed = [], 0
+    for r in results:
+        sig = _title_signature(r["title"])
+        if sig in sent_sigs:
+            removed += 1
+        else:
+            filtered.append(r)
+
+    if removed:
+        print(f"  📌 跨天去重: 过滤 {removed} 条已发送")
+    return filtered
+
+
+def record_sent_items(topic: str, items: list[dict]):
+    """推送成功后持久化已发送条目的签名"""
+    history = _load_sent_history()
+    if topic not in history:
+        history[topic] = {"items": []}
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    for item in items:
+        sig = _title_signature(item["title"])
+        history[topic]["items"].append({"sig": sig, "date": today})
+
+    _cleanup_old_history(history)
+    _save_sent_history(history)
+    print(f"  💾 已记录 {len(items)} 条发送历史")
+
+
 # ──────────────── 通用请求头 ────────────────
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -617,12 +767,24 @@ def main():
         print("❌ 无搜索结果，退出", file=sys.stderr)
         sys.exit(1)
 
+    # ── 去重：先跨天，再同天近义 ──
+    results = filter_sent_items(args.topic, results)
+    results = deduplicate_near(results)
+
+    if not results:
+        print("✅ 去重后无新内容，跳过推送")
+        sys.exit(0)
+
     news_count = config.get("news_count", 14)
     selected = select_best(results, count=news_count)
     print(f"⭐ 精选 {len(selected)} 条")
 
     payload = build_post(args.topic, selected)
     ok = push_to_feishu(payload)
+
+    if ok:
+        record_sent_items(args.topic, selected)
+
     sys.exit(0 if ok else 1)
 
 
