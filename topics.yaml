@@ -81,46 +81,58 @@ topics:
         priority: 4
         match: []  # fallback
 
-  # ── AI·科技行业 ──
+  # ── AI简报 ──
   tech:
     enabled: true
-    title_prefix: "🤖 AI·3C·科技日报"
+    title_prefix: "🤖 AI日报"
     sections:
-      - ["📊 行业动态", "市场数据、行业趋势、投融资"]
-      - ["🏭 公司事件", "产品发布、企业动态、合作并购"]
-      - ["🔍 技术趋势", "AI突破、芯片进展、前沿技术"]
+      - ["🔥 AI产品动态", "ChatGPT/Claude/Codex/Gemini等AI产品更新与发布"]
+      - ["📖 攻略·教程", "AI智能体使用攻略、实操教程、技巧分享"]
+      - ["⚡ 行业趋势", "AI投融资、大模型突破、行业格局变化"]
     google_queries:
-      # AI 核心
-      - "AI 人工智能 最新进展"
+      # AI 产品与工具
+      - "ChatGPT 最新 更新 功能"
+      - "Claude Code 使用 教程 最新"
+      - "Codex OpenAI 使用 攻略"
+      - "AI Agent 智能体 教程 应用"
+      - "Gemini Google AI 最新"
+      - "Cursor Windsurf AI编程 最新"
+      - "AI 编程工具 最新 动态"
       - "大模型 LLM GPT 发布"
-      - "AI Agent 智能体 应用"
-      - "具身智能 机器人 最新"
       - "AI 开源模型 最新"
-      - "AI 芯片 算力 最新"
-      # 行业
-      - "手机 新品 发布"
-      - "芯片 半导体 最新"
-      - "人工智能 投融资 融资"
+      - "AI 投融资 融资 最新"
       - "AI 生成式 应用 落地"
-      - "科技公司 AI 战略"
+      - "具身智能 机器人 最新"
+      # AI 垂类媒体（公众号/行业媒体覆盖）
+      - "机器之心 AI 最新"
+      - "量子位 AI 最新"
+      - "新智元 AI 最新"
+      - "AI前线 最新"
+      - "极客公园 AI 最新"
+      - "AIGC开放社区 最新"
+      - "AI工具集 攻略 教程"
+      - "ChatGPT中文 攻略 最新"
+      - "程序员鱼皮 AI 工具"
+      - "PaperWeekly AI 最新"
+      - "深度学习 NLP 最新"
     rss_feeds:
-      - "https://www.ithome.com/rss/"
-      - "https://36kr.com/feed"
       - "https://www.jiqizhixin.com/rss"
       - "https://www.qbitai.com/rss"
     twitter: true
-    footer: "💡 来源：Google News + IT之家/36氪/机器之心/量子位 + 推特AI圈 | 每日10:30自动推送"
-    news_count: 10
+    footer: "💡 来源：Google News + 机器之心/量子位RSS + 11个公众号 + 推特AI圈 | 每日10:30自动推送"
+    news_count: 12
     # 分类规则：按优先级匹配
     categorize_rules:
-      - section: "🏭 公司事件"
+      - section: "📖 攻略·教程"
         priority: 1
-        exact: ["融资", "A轮", "B轮", "C轮", "D轮", "收购", "并购", "IPO", "递表", "上市", "港交所", "财报", "业绩", "营收", "裁员", "重组", "拆分", "交割", "投资方", "融资金额"]
-        context: [["上市", ["港交所", "IPO", "招股书", "递表", "纳斯达克"]]]
-      - section: "🔍 技术趋势"
+        match: ["教程", "攻略", "指南", "使用技巧", "实操", "上手", "入门", "配置", "部署", "如何使用", "怎么用", "玩法", "提示词", "Prompt", "prompt", "技巧", "快捷键", "最佳实践", "保姆级", "一文读懂", "一文看懂", "手把手", "详解", "深入浅出", "从零开始", "新手", "小白", "工作流", "Workflow", "MCP", "插件", "集成", "接入", "接入教程"]
+        context: [["Code", ["Claude", "ChatGPT", "Codex", "Cursor", "Agent"]]]
+      - section: "🔥 AI产品动态"
         priority: 2
-        match: ["大模型", "LLM", "GPT", "Claude", "Gemini", "开源模型", "模型", "Agent", "智能体", "机器人", "具身智能", "芯片", "半导体", "制程", "工艺", "量产", "算力", "GPU", "TPU", "NPU", "量子", "算法", "推理", "训练", "预训练", "微调", "RLHF", "RAG", "embedding", "Token", "参数", "benchmark", "评测", "超越", "首次", "突破"]
-      - section: "📊 行业动态"
+        match: ["ChatGPT", "GPT", "Claude", "Codex", "Gemini", "Sora", "OpenAI", "Anthropic", "DeepSeek", "Cursor", "Windsurf", "Agent", "智能体", "发布", "更新", "升级", "上线", "新功能", "官宣", "推出", "重磅", "发布", "模型", "大模型", "LLM", "开源", "开源模型", "参数", "benchmark", "评测", "超越"]
+        exclude: ["融资", "收购", "并购", "IPO", "投融资"]
+        exclude_to: "⚡ 行业趋势"
+      - section: "⚡ 行业趋势"
         priority: 3
         match: []  # fallback
 
