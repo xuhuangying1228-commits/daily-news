@@ -18,7 +18,7 @@
 topics:
   # ── 美妆行业 ──
   beauty:
-    enabled: true
+    enabled: false
     title_prefix: "💄 美妆行业日报"
     sections:
       - ["🏷️ 品牌动态", "新品发布、业绩财报、品牌合作"]
@@ -119,7 +119,7 @@ topics:
       - "https://www.jiqizhixin.com/rss"
       - "https://www.qbitai.com/rss"
     twitter: true
-    footer: "💡 来源：Google News + 机器之心/量子位RSS + 11个公众号 + 推特AI圈 | 每日10:30自动推送"
+    footer: "💡 来源：Google News + 机器之心/量子位RSS + AI行业公开资讯 | 每日09:00自动推送"
     news_count: 12
     # 分类规则：按优先级匹配
     categorize_rules:
