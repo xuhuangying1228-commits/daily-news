@@ -2,8 +2,8 @@ name: 行业日报
 
 on:
   schedule:
-    # 北京时间 09:00 = UTC 01:00
-    - cron: "0 1 * * *"
+    # 北京时间 09:07 = UTC 01:07，避开 GitHub Actions 整点拥堵
+    - cron: "7 1 * * *"
   workflow_dispatch:  # 支持手动触发
 
 jobs:
